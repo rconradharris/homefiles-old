@@ -8,7 +8,7 @@ setup(
     name=name,
     version=version,
     description='home directory files in git',
-    license='Apache License (2.0)',
+    license='MIT',
     author='Rick Harris',
     author_email='rconradharris@gmail.com',
     packages=find_packages(exclude=['tests', 'bin']),

@@ -1,0 +1,331 @@
+#!/usr/bin/env python
+"""
+Homedir file management.
+
+Keep your TODO, IDEAS, dotfiles, and anything else backed up in git.
+
+(c) 2011 Rick Harris <rconradharris@gmail.com>
+"""
+import contextlib
+import os
+import optparse
+import sys
+
+VERBOSE = False
+DRY_RUN = False
+DEFAULT_REPO = 'homefiles-data'
+MANIFEST = 'manifest.list'
+
+
+def parse_options():
+    usage = get_usage()
+    parser = optparse.OptionParser(usage)
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False,
+                      help="Turns on verbose output.")
+    options, args = parser.parse_args()
+    return options, args
+
+
+def die(msg):
+    print >> sys.stderr, msg
+    sys.exit(1)
+
+
+def get_usage():
+    actions = []
+    for key in globals().keys():
+        if key.startswith('do_'):
+            action = key.split('_', 1)[1]
+            action = action.replace('_', '-')
+            actions.append(action)
+
+    actions = ' | '.join(sorted(actions))
+    usage = 'usage: homefiles < %(actions)s >' % locals()
+    return usage
+
+
+def usage():
+    die(get_usage())
+
+
+def say(msg, force=False):
+    if VERBOSE or force:
+        print msg
+
+
+def collapseuser(path):
+    """Opposite of os.path.expanduser"""
+    return path.replace(os.environ['HOME'], '~')
+
+
+def execute(cmd, always_show=False):
+    if not VERBOSE and not always_show:
+        cmd += " 1> /dev/null 2> /dev/null"
+    return os.system(cmd)
+
+
+@contextlib.contextmanager
+def chdir(dirname=None):
+    curdir = os.getcwd()
+    try:
+        if dirname is not None:
+            os.chdir(dirname)
+        yield
+    finally:
+        os.chdir(curdir)
+
+
+def symlink(src, dst):
+    if os.path.exists(dst):
+        say("symlinking '%(src)s' -> '%(dst)s' [skipped]" % locals())
+        return
+
+    say("symlinking '%(src)s' -> '%(dst)s' [done]" % locals())
+
+    if DRY_RUN:
+        return
+
+    os.symlink(src, dst)
+
+
+def move(src, dst):
+    if not os.path.exists(src):
+        die("Cannot move, '%(src)s' does not exist" % locals())
+    if os.path.exists(dst):
+        die("Cannot move '%(src)s', '%(dst)s' already exists" % locals())
+
+    if DRY_RUN:
+        say("moving '%(src)s' -> '%(dst)s' [skipped]" % locals())
+        return
+
+    say("moving '%(src)s' -> '%(dst)s' [done]" % locals())
+    os.rename(src, dst)
+
+
+def add_file(homefiles_dir, filename):
+    if DRY_RUN:
+        say("Adding '%(filename)s' to homefiles [skipped]" % locals())
+        return
+
+    with chdir(homefiles_dir):
+        say("Adding '%(filename)s' to homefiles [done]" % locals())
+        execute("git add %(filename)s" % locals())
+
+
+def add_map_entry(homefiles_dir, src, dst):
+    map_filename = os.path.join(homefiles_dir, MANIFEST)
+    with open(map_filename, 'a') as f:
+        line = "%(src)s %(dst)s\n" % locals()
+        f.write(line)
+
+
+def remove_symlink(path):
+    # NOTE: lexists allows us to sweep up broken symlinks
+    if not os.path.lexists(path):
+        say("removing '%(path)s' [skipped]" % locals())
+        return
+
+    if not os.path.islink(path):
+        say("ERROR: '%(path')s is not a symlink" % locals())
+        return
+
+    say("removing '%(path)s' [done]" % locals())
+
+    if DRY_RUN:
+        return
+
+    os.remove(path)
+
+
+def read_map_file(filename):
+    with open(filename) as f:
+        for line in f:
+            if not line:
+                continue
+            if line.startswith('#'):
+                continue
+            # FIXME: can't handle spaces in filenames
+            src, dst = line.split(' ')
+            src = src.strip()
+            dst = dst.strip()
+            yield (src, dst)
+
+
+def get_files(homefiles_dir):
+    map_filename = os.path.join(homefiles_dir, MANIFEST)
+    files = read_map_file(map_filename)
+    for src_file, dst_file in files:
+        src = os.path.join(homefiles_dir, src_file)
+        dst = os.path.expanduser(dst_file)
+        yield (src, dst)
+
+
+def get_username_repo_from_args(homefiles_dir, action, args):
+    global VERBOSE
+    VERBOSE = True
+    if os.path.exists(homefiles_dir):
+        die("HOMEFILES_DIR '%(homefiles_dir)s' already exists" % locals())
+
+    try:
+        username = args[1]
+    except IndexError:
+        die('usage: homefiles %(action)s < username > [ repo ]' % locals())
+
+    try:
+        repo = args[2]
+    except IndexError:
+        repo = DEFAULT_REPO
+
+    return username, repo
+
+
+def make_github_url(username, repo):
+    return "git@github.com:%(username)s/%(repo)s.git" % locals()
+
+
+def do_add(homefiles_dir, args):
+    try:
+        filename = args[1]
+    except IndexError:
+        die('usage: homefiles add < filename >')
+
+    try:
+        filename_override = args[2]
+    except IndexError:
+        filename_override = None
+
+    src = os.path.expanduser(filename)
+    src = os.path.abspath(src)
+    collapsed_src = collapseuser(src)
+
+    if filename_override:
+        dst_filename = filename_override
+    else:
+        dst_filename = os.path.basename(src)
+
+    dst = os.path.join(homefiles_dir, dst_filename)
+
+    move(src, dst)
+
+    try:
+        add_file(homefiles_dir, dst_filename)
+        add_map_entry(homefiles_dir, dst_filename, collapsed_src)
+        do_sync(homefiles_dir, args)
+    except:
+        move(dst, src)
+        raise
+
+
+def do_clone(homefiles_dir, args):
+    username, repo = get_username_repo_from_args(homefiles_dir, 'clone', args)
+    url = make_github_url(username, repo)
+    say('cloning %(url)s' % locals())
+
+    if DRY_RUN:
+        return
+
+    execute('git clone %(url)s' % locals(), always_show=True)
+    move(repo, homefiles_dir)
+    do_sync(homefiles_dir, [])
+
+
+def do_deposit(homefiles_dir, args):
+    for src, dst in get_files(homefiles_dir):
+        symlink(src, dst)
+
+
+def do_diff(homefiles_dir, args):
+    # NOTE: it's a little weird to add files in order to diff; however, diff
+    # is intended to show what changes will occur when we `sync`. Since `sync`
+    # adds/commits everything, we need to introduce the files to git so that
+    # they are reflected in the diff.
+    with chdir(homefiles_dir):
+        # pick up any new files in repo
+        execute("git add .")
+
+        execute('git diff --cached', always_show=True)
+
+
+def do_init(homefiles_dir, args):
+    username, repo = get_username_repo_from_args(homefiles_dir, 'init', args)
+    url = make_github_url(username, repo)
+
+    os.mkdir(homefiles_dir)
+
+    with chdir(homefiles_dir):
+        execute('git init .')
+        execute('touch manifest.list')
+        execute('git add manifest.list')
+        execute("git commit -m 'Initial checkin'")
+        execute("git remote add origin %(url)s" % locals())
+        execute('git push -u origin master')
+
+
+def do_log(homefiles_dir, args):
+    with chdir(homefiles_dir):
+        execute('git log -p', always_show=True)
+
+
+def do_map(homefiles_dir, args):
+    for src, dst in get_files(homefiles_dir):
+        say("'%(src)s' -> '%(dst)s'" % locals(), force=True)
+
+
+def do_sync(homefiles_dir, args):
+    if DRY_RUN:
+        say('Commiting and pushing up files [skipped]')
+        return
+
+    with chdir(homefiles_dir):
+        say('Commiting and pushing up files [done]')
+        # pick up any changes to remote repo
+        execute('git pull origin master')
+
+        # pick up any new files in repo
+        execute("git add .")
+
+        # commit changes, including git-rm any trakced files no longer in
+        # working directory
+        execute("git commit -a -m 'Syncing files'")
+
+        execute("git push origin master")
+
+    do_sweep(homefiles_dir, args)
+    do_deposit(homefiles_dir, args)
+
+
+def do_sweep(homefiles_dir, args):
+    for src, dst in get_files(homefiles_dir):
+        remove_symlink(dst)
+
+
+def main():
+    global VERBOSE
+    if len(sys.argv) < 2:
+        usage()
+
+    options, args = parse_options()
+    if options.verbose:
+        VERBOSE = True
+
+    default_dir = '~/.%s' % DEFAULT_REPO
+    homefiles_dir = os.environ.get('HOMEFILES_DIR', default_dir)
+    homefiles_dir = os.path.expanduser(homefiles_dir)
+
+    cmd = args[0]
+    cmd = cmd.replace('-', '_')
+    try:
+        func = globals()['do_%s' % cmd]
+    except KeyError:
+        usage()
+
+    if cmd not in ('clone', 'init'):
+        if not os.path.exists(homefiles_dir):
+            die("HOMEFILES_DIR '%(homefiles_dir)s' not found." % locals())
+
+    func(homefiles_dir, args)
+
+
+if __name__ == "__main__":
+    main()

@@ -2,12 +2,13 @@ from setuptools import setup, find_packages
 from setuptools.command.sdist import sdist
 
 name = 'homefiles'
-version = '0.1'
+version = '0.1.1'
 
 setup(
     name=name,
     version=version,
     description='home directory files in git',
+    url='https://github.com/rconradharris/homefiles',
     license='MIT',
     author='Rick Harris',
     author_email='rconradharris@gmail.com',

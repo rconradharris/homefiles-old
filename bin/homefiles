@@ -49,8 +49,8 @@ def usage():
     die(get_usage())
 
 
-def say(msg, force=False):
-    if VERBOSE or force:
+def say(msg, always_show=False):
+    if VERBOSE or always_show:
         print msg
 
 
@@ -113,9 +113,9 @@ def add_file(homefiles_dir, filename):
         execute("git add %(filename)s" % locals())
 
 
-def add_map_entry(homefiles_dir, src, dst):
-    map_filename = os.path.join(homefiles_dir, MANIFEST)
-    with open(map_filename, 'a') as f:
+def add_manifest_entry(homefiles_dir, src, dst):
+    manifest_filename = os.path.join(homefiles_dir, MANIFEST)
+    with open(manifest_filename, 'a') as f:
         line = "%(src)s %(dst)s\n" % locals()
         f.write(line)
 
@@ -138,7 +138,7 @@ def remove_symlink(path):
     os.remove(path)
 
 
-def read_map_file(filename):
+def read_manifest_file(filename):
     with open(filename) as f:
         for line in f:
             if not line:
@@ -153,8 +153,8 @@ def read_map_file(filename):
 
 
 def get_files(homefiles_dir):
-    map_filename = os.path.join(homefiles_dir, MANIFEST)
-    files = read_map_file(map_filename)
+    manifest_filename = os.path.join(homefiles_dir, MANIFEST)
+    files = read_manifest_file(manifest_filename)
     for src_file, dst_file in files:
         src = os.path.join(homefiles_dir, src_file)
         dst = os.path.expanduser(dst_file)
@@ -210,7 +210,7 @@ def do_add(homefiles_dir, args):
 
     try:
         add_file(homefiles_dir, dst_filename)
-        add_map_entry(homefiles_dir, dst_filename, collapsed_src)
+        add_manifest_entry(homefiles_dir, dst_filename, collapsed_src)
         do_sync(homefiles_dir, args)
     except:
         move(dst, src)
@@ -262,14 +262,14 @@ def do_init(homefiles_dir, args):
         execute('git push -u origin master')
 
 
+def do_list(homefiles_dir, args):
+    for src, dst in get_files(homefiles_dir):
+        say("'%(src)s' -> '%(dst)s'" % locals(), always_show=True)
+
+
 def do_log(homefiles_dir, args):
     with chdir(homefiles_dir):
         execute('git log -p', always_show=True)
-
-
-def do_map(homefiles_dir, args):
-    for src, dst in get_files(homefiles_dir):
-        say("'%(src)s' -> '%(dst)s'" % locals(), force=True)
 
 
 def do_sync(homefiles_dir, args):

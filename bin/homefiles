@@ -127,7 +127,7 @@ def remove_symlink(path):
         return
 
     if not os.path.islink(path):
-        say("ERROR: '%(path')s is not a symlink" % locals())
+        say("ERROR: '%(path)s' is not a symlink" % locals())
         return
 
     say("removing '%(path)s' [done]" % locals())

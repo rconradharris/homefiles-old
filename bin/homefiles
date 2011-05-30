@@ -86,6 +86,13 @@ def symlink(src, dst):
     if DRY_RUN:
         return
 
+    # Create directories along the way if they don't exist
+    # Works around some distributions not having a ~/Documents dir
+    parentdir = os.path.dirname(dst)
+    if not os.path.exists(parentdir):
+        say("parent directory not found, creating '%(parentdir)s'" % locals())
+        os.makedirs(parentdir)
+
     os.symlink(src, dst)
 
 

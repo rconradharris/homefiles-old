@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 from setuptools.command.sdist import sdist
 
 name = 'homefiles'
-version = '0.1.1'
+version = '0.1.2'
 
 setup(
     name=name,
